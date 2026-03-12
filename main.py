@@ -23,7 +23,7 @@ import random
 # ============================================================
 #  SOZLAMALAR
 # ============================================================
-BOT_TOKEN       = "8741092251:AAECrlLCFfOx7xx41j-IOwq4MdukDHb8Sps"
+BOT_TOKEN       = ("8741092251:AAECrlLCFfOx7xx41j-IOwq4MdukDHb8Sps")
 DOMLA_PAROLI    = "domla2024"    # O'qituvchi paroli
 OQUVCHI_PAROLI  = "oquvchi2024"  # O'quvchi paroli
 # ============================================================
@@ -528,11 +528,14 @@ def tashqi_bekor(call):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("tashqi_vaxt_"))
 def tashqi_vaxt_tanlandi(call):
-    parts   = call.data.split("_")
-    kurs_id = int(parts[2])
-    # kun nomi "Dushanba" kabi, uid oxirida
-    uid     = int(parts[-1])
-    kun     = "_".join(parts[3:-1])
+    # format: tashqi_vaxt_{kurs_id}_{kun}_{uid}
+    stripped = call.data[len("tashqi_vaxt_"):]
+    first_   = stripped.index("_")
+    kurs_id  = int(stripped[:first_])
+    rest     = stripped[first_+1:]
+    last_    = rest.rindex("_")
+    kun      = rest[:last_]
+    uid      = int(rest[last_+1:])
 
     if call.from_user.id != uid:
         bot.answer_callback_query(call.id, "Ruxsat yo'q.")
@@ -1464,9 +1467,11 @@ def jadval_sinf_kirish(message):
 
 @bot.callback_query_handler(func=lambda c: "jadval_kun_" in c.data)
 def jadval_kun_tanlash(call):
-    parts = call.data.split("_")
-    kun   = parts[2]
-    uid   = int(parts[3])
+    # format: jadval_kun_{kun}_{uid}
+    stripped2 = call.data[len("jadval_kun_"):]
+    last_u    = stripped2.rindex("_")
+    kun       = stripped2[:last_u]
+    uid       = int(stripped2[last_u+1:])
     if call.from_user.id != uid: return
 
     jadval_temp[uid]["kun"] = kun
@@ -2596,9 +2601,11 @@ def kurs_yozilish_boshlash(call):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("kursvaxt_"))
 def kurs_kun_tanlandi(call):
     """O'quvchi kun/vaqt tanladi — telefon so'raydi"""
-    parts   = call.data.split("_")
-    kurs_id = int(parts[1])
-    kun     = "_".join(parts[2:])   # kun nomi (masalan "Dushanba")
+    # format: kursvaxt_{kurs_id}_{kun}
+    data    = call.data[len("kursvaxt_"):]
+    sep_idx = data.index("_")
+    kurs_id = int(data[:sep_idx])
+    kun     = data[sep_idx+1:]
     uid     = call.from_user.id
 
     kurs = next((k for k in kurslar if k["id"] == kurs_id), None)
@@ -2626,8 +2633,11 @@ def kurs_kun_tanlandi(call):
         parse_mode="Markdown")
     bot.answer_callback_query(call.id)
 
-    # Keyingi qadam — telefon
-    bot.register_next_step_handler(call.message, lambda m: kurs_telefon_qabul(m, uid))
+    # Keyingi qadam — telefon (yangi xabarga register qilamiz)
+    sent = bot.send_message(call.message.chat.id,
+        "📞 Telefon raqamingizni kiriting:\n_(masalan: +998 90 123 45 67)_",
+        parse_mode="Markdown")
+    bot.register_next_step_handler(sent, lambda m: kurs_telefon_qabul(m, uid))
 
 
 def kurs_telefon_qabul(message, uid):
@@ -3503,4 +3513,5 @@ if __name__ == "__main__":
     print(f"🔐 O'quvchi paroli   : {OQUVCHI_PAROLI}")
     print("✅ Barcha funksiyalar faol")
     print("🛑 To'xtatish: Ctrl+C\n")
+    bot.remove_webhook()
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
