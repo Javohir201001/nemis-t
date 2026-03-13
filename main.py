@@ -7,18 +7,20 @@
 ✅ To'lov tarixi + E'lonlar + Reyting + Admin bog'lanish (yangi!)
 
 O'rnatish:
-    pip install pyTelegramBotAPI
+    pip install pyTelegramBotAPI flask
 
 Ishga tushirish:
     1. @BotFather → /newbot → TOKEN oling
     2. BOT_TOKEN va DOMLA_PAROLI ni o'zgartiring
-    3. python vazifa_bot.py
+    3. python main.py
 """
 
 import telebot
 from telebot import types
 import datetime
 import random
+from flask import Flask, request as flask_request
+import os
 
 # ============================================================
 #  SOZLAMALAR
@@ -268,21 +270,16 @@ def domla_ism_saqlash(message):
 # O'QUVCHI — RO'YXATDAN O'TISH
 # ============================================================
 
-# ============================================================
-# O'QUVCHI — RO'YXATDAN O'TISH
-# ============================================================
-
 @bot.message_handler(func=lambda m: m.text == "👨‍🎓 O'quvchi sifatida kirish")
 def rol_oquvchi(message):
     uid = message.from_user.id
 
-    # Allaqachon ro'yxatdan o'tgan — parol so'raymiz
     mavjud = next((u for u in foydalanuvchilar.values()
                    if u.get("telegram_id") == uid
                    and u.get("rol") == "oquvchi"
                    and u.get("holat") == "done"), None)
     if mavjud:
-        foydalanuvchilar[uid] = dict(mavjud)  # qayta yuklash
+        foydalanuvchilar[uid] = dict(mavjud)
         foydalanuvchilar[uid]["holat"] = "login_parol"
         msg = bot.send_message(message.chat.id,
             "👨‍🎓 *O'quvchi tizimga kirish*\n\n🔐 Parolingizni kiriting:",
@@ -290,7 +287,6 @@ def rol_oquvchi(message):
         bot.register_next_step_handler(msg, oquvchi_login_parol)
         return
 
-    # Birinchi marta — ro'yxatdan o'tish
     foydalanuvchilar[uid] = {"holat": "oquvchi_ism", "rol": "oquvchi", "telegram_id": uid}
     msg = bot.send_message(message.chat.id,
         "👨‍🎓 *O'quvchi ro'yxatdan o'tish*\n\n"
@@ -300,16 +296,14 @@ def rol_oquvchi(message):
 
 
 def oquvchi_login_parol(message):
-    """Mavjud o'quvchi parol bilan kiradi"""
-    uid = message.from_user.id
-    u   = foydalanuvchilar.get(uid, {})
+    uid   = message.from_user.id
+    u     = foydalanuvchilar.get(uid, {})
     if message.text.strip() == u.get("parol", ""):
         u["holat"] = "done"
         bot.send_message(message.chat.id,
             f"✅ *Xush kelibsiz, {u['ism']}!*",
             parse_mode="Markdown", reply_markup=oquvchi_menyu())
     else:
-        # 3 marta urinish
         u["login_urinish"] = u.get("login_urinish", 0) + 1
         qolgan = 3 - u["login_urinish"]
         if qolgan <= 0:
@@ -440,12 +434,10 @@ def oquvchi_parol_tasdiqlash(message):
 def tashqi_kursga_yozilish(message):
     uid = message.from_user.id
 
-    # Agar allaqachon ro'yxatdan o'tgan o'quvchi bosgan bo'lsa
     if is_oquvchi(uid):
         oquvchi_kurslarga_yozilish(message)
         return
 
-    # Ro'yxatdan o'tmagan yangi odam
     aktiv_kurslar = [k for k in kurslar if k["aktiv"]]
     if not aktiv_kurslar:
         bot.send_message(message.chat.id,
@@ -528,14 +520,10 @@ def tashqi_bekor(call):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("tashqi_vaxt_"))
 def tashqi_vaxt_tanlandi(call):
-    # format: tashqi_vaxt_{kurs_id}_{kun}_{uid}
-    stripped = call.data[len("tashqi_vaxt_"):]
-    first_   = stripped.index("_")
-    kurs_id  = int(stripped[:first_])
-    rest     = stripped[first_+1:]
-    last_    = rest.rindex("_")
-    kun      = rest[:last_]
-    uid      = int(rest[last_+1:])
+    parts   = call.data.split("_")
+    kurs_id = int(parts[2])
+    uid     = int(parts[-1])
+    kun     = "_".join(parts[3:-1])
 
     if call.from_user.id != uid:
         bot.answer_callback_query(call.id, "Ruxsat yo'q.")
@@ -545,13 +533,12 @@ def tashqi_vaxt_tanlandi(call):
     jadval_entry = next((j for j in kurs.get("jadval", []) if j["kun"] == kun), None)
     vaqt = jadval_entry["vaqt"] if jadval_entry else "—"
 
-    # Temp saqlaymiz
     kurs_temp[uid] = {
         "kurs_id":        kurs_id,
         "kurs_nomi":      kurs["nomi"],
         "tanlangan_kun":  kun,
         "tanlangan_vaqt": vaqt,
-        "tashqi":         True,   # ro'yxatdan o'tmagan
+        "tashqi":         True,
     }
 
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
@@ -613,7 +600,6 @@ def tashqi_telefon_qabul(message, uid):
         f"Botdan to'liq foydalanish uchun ro'yxatdan o'ting 👇",
         parse_mode="Markdown", reply_markup=rol_tanlash_menyu())
 
-    # Domlaga xabar
     for sid, info in foydalanuvchilar.items():
         if info.get("rol") == "domla" and info.get("holat") == "done":
             try:
@@ -752,7 +738,6 @@ def oquvchilar_korsatish(message):
         nats  = [n["ball"]/n["jami"]*100 for n in test_natijalari if n["uid"]==sid and n["jami"]>0]
         avg_t = f"{sum(nats)/len(nats):.0f}%" if nats else "—"
         ort_b = _ortacha_baho(sid)
-        # Davomat foizi
         mening_dav = [d for d in davomat_yozuvlari if d["uid"] == sid]
         keldi_soni = sum(1 for d in mening_dav if d["holat"] == "keldi")
         dav_foiz = f"{keldi_soni}/{len(mening_dav)}" if mening_dav else "—"
@@ -1107,7 +1092,7 @@ def jurnal_oquvchi(call):
     bot.answer_callback_query(call.id)
 
 # ============================================================
-# 📊 DOMLA: DAVOMAT BELGILASH (YANGI)
+# 📊 DOMLA: DAVOMAT BELGILASH
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📊 Davomat belgilash")
@@ -1123,7 +1108,6 @@ def davomat_belgilash_boshlash(message):
             "👥 Hozircha ro'yxatdan o'tgan o'quvchi yo'q.", reply_markup=domla_menyu())
         return
 
-    # Sinf tanlash
     sinflar = list(set(info.get("sinf", "—") for _, info in oq))
     sinflar.sort()
 
@@ -1242,7 +1226,6 @@ def _dav_yakunlash(chat_id, domla_uid):
     if not temp: return
 
     natijalar = temp["natijalar"]
-    # Saqlash
     davomat_yozuvlari.extend(natijalar)
 
     keldi    = sum(1 for n in natijalar if n["holat"] == "keldi")
@@ -1266,7 +1249,6 @@ def _dav_yakunlash(chat_id, domla_uid):
 
     bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=domla_menyu())
 
-    # Kelmagan o'quvchilarga xabar
     for n in natijalar:
         if n["holat"] == "kelmadi":
             try:
@@ -1276,7 +1258,7 @@ def _dav_yakunlash(chat_id, domla_uid):
             except: pass
 
 # ============================================================
-# 🗓 DOMLA: DAVOMAT HISOBOTI (YANGI)
+# 🗓 DOMLA: DAVOMAT HISOBOTI
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "🗓 Davomat hisoboti")
@@ -1385,7 +1367,6 @@ def dav_hisobot_sana(call):
     if not is_domla(call.from_user.id): return
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
 
-    # Noyob sanalar
     sanalar = sorted(set(d["sana"] for d in davomat_yozuvlari), reverse=True)[:10]
 
     if not sanalar:
@@ -1423,7 +1404,7 @@ def dav_sana_detail(call):
     bot.answer_callback_query(call.id)
 
 # ============================================================
-# 📅 DOMLA: DARS JADVALI BOSHQARUVI (YANGI)
+# 📅 DOMLA: DARS JADVALI BOSHQARUVI
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📅 Dars jadvali")
@@ -1458,7 +1439,6 @@ def jadval_sinf_kirish(message):
     if not is_domla(uid): return
     jadval_temp[uid]["sinf"] = message.text.strip()
 
-    # Kun tanlash
     markup = types.InlineKeyboardMarkup(row_width=3)
     for kun in KUNLAR:
         markup.add(types.InlineKeyboardButton(kun, callback_data=f"jadval_kun_{kun}_{uid}"))
@@ -1467,11 +1447,9 @@ def jadval_sinf_kirish(message):
 
 @bot.callback_query_handler(func=lambda c: "jadval_kun_" in c.data)
 def jadval_kun_tanlash(call):
-    # format: jadval_kun_{kun}_{uid}
-    stripped2 = call.data[len("jadval_kun_"):]
-    last_u    = stripped2.rindex("_")
-    kun       = stripped2[:last_u]
-    uid       = int(stripped2[last_u+1:])
+    parts = call.data.split("_")
+    kun   = parts[2]
+    uid   = int(parts[3])
     if call.from_user.id != uid: return
 
     jadval_temp[uid]["kun"] = kun
@@ -1521,7 +1499,6 @@ def jadval_xona_saqlash(message):
         dars_jadvali[sinf] = []
     dars_jadvali[sinf].append(dars)
 
-    # Hafta tartibida saralash
     dars_jadvali[sinf].sort(key=lambda x: (KUNLAR.index(x["kun"]) if x["kun"] in KUNLAR else 99, x["soat"]))
 
     xona_text = f" | 🚪 {xona}" if xona else ""
@@ -1534,7 +1511,6 @@ def jadval_xona_saqlash(message):
         f"{xona_text}",
         parse_mode="Markdown", reply_markup=domla_menyu())
 
-    # O'quvchilarga xabar
     for sid, info in foydalanuvchilar.items():
         if info.get("rol") == "oquvchi" and info.get("holat") == "done" and info.get("sinf") == sinf:
             try:
@@ -1632,7 +1608,7 @@ def jadval_dars_ochir(call):
     bot.answer_callback_query(call.id)
 
 # ============================================================
-# O'QUVCHI: DARS JADVALIM (YANGI)
+# O'QUVCHI: DARS JADVALIM
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📅 Dars jadvalim")
@@ -1664,7 +1640,7 @@ def oquvchi_dars_jadvali(message):
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=oquvchi_menyu())
 
 # ============================================================
-# O'QUVCHI: MENING DAVOMATIM (YANGI)
+# O'QUVCHI: MENING DAVOMATIM
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📊 Mening davomatim")
@@ -1972,7 +1948,6 @@ def mening_profilim(message):
     nat_soni   = sum(1 for n in test_natijalari if n["uid"] == uid)
     baho_soni  = sum(1 for b in baholar if b["uid"] == uid)
     ort_baho   = _ortacha_baho(uid)
-    # Davomat
     dav_mening = [d for d in davomat_yozuvlari if d["uid"] == uid]
     keldi_soni = sum(1 for d in dav_mening if d["holat"] == "keldi")
     dav_foiz   = f"{int(keldi_soni/len(dav_mening)*100)}%" if dav_mening else "—"
@@ -1990,7 +1965,7 @@ def mening_profilim(message):
         parse_mode="Markdown", reply_markup=oquvchi_menyu())
 
 # ============================================================
-# 🎓 DOMLA: KURSLARNI BOSHQARISH (YANGI)
+# 🎓 DOMLA: KURSLARNI BOSHQARISH
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "🎓 Kurslarni boshqarish")
@@ -2068,14 +2043,11 @@ def kurs_joylar_kirish(message):
     except:
         joylar = 0
     kurs_temp[uid]["joylar"] = joylar
-
-    # Endi dars kunlarini tanlash
     kurs_temp[uid]["dars_kunlari"] = []
     _kurs_kun_tanlash_yuborish(message.chat.id, uid)
 
 
 def _kurs_kun_tanlash_yuborish(chat_id, uid):
-    """Hafta kunlarini tanlash - multiple select"""
     temp     = kurs_temp.get(uid, {})
     tanlangan = temp.get("dars_kunlari", [])
 
@@ -2118,7 +2090,6 @@ def kurs_kun_toggle(call):
         kunlar.append(kun)
     temp["dars_kunlari"] = kunlar
 
-    # Xabarni yangilash
     KUNLAR_LIST = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"]
     markup = types.InlineKeyboardMarkup(row_width=2)
     for k in KUNLAR_LIST:
@@ -2156,21 +2127,17 @@ def kurs_kun_done(call):
         return
 
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
-
-    # Har bir kun uchun vaqt so'rash
     temp["kun_vaqtlari"] = {}
-    temp["kunlar_queue"] = list(kunlar)  # navbat
+    temp["kunlar_queue"] = list(kunlar)
     bot.answer_callback_query(call.id)
     _kurs_kun_vaqt_sorash(call.message.chat.id, uid)
 
 
 def _kurs_kun_vaqt_sorash(chat_id, uid):
-    """Navbatdagi kun uchun vaqt so'raydi"""
     temp  = kurs_temp.get(uid)
     queue = temp.get("kunlar_queue", [])
 
     if not queue:
-        # Barchasi tugadi — kurs saqlash
         _kurs_saqlash(chat_id, uid)
         return
 
@@ -2194,10 +2161,8 @@ def _kurs_vaqt_qabul(message, uid, kun):
 
 
 def _kurs_saqlash(chat_id, uid):
-    """Kursni oxirida saqlaydi"""
     temp = kurs_temp.pop(uid, {})
 
-    # Dars jadvali matnini shakllantirish
     kun_vaqtlari  = temp.get("kun_vaqtlari", {})
     jadval_qatorlar = []
     TARTIB = ["Dushanba","Seshanba","Chorshanba","Payshanba","Juma","Shanba","Yakshanba"]
@@ -2213,7 +2178,7 @@ def _kurs_saqlash(chat_id, uid):
         "narx":      temp.get("narx", "—"),
         "muddat":    temp.get("muddat", "—"),
         "joylar":    joylar,
-        "jadval":    jadval_qatorlar,   # [{kun, vaqt}]
+        "jadval":    jadval_qatorlar,
         "sana":      str(datetime.date.today()),
         "aktiv":     True,
     }
@@ -2232,7 +2197,6 @@ def _kurs_saqlash(chat_id, uid):
         f"*Dars jadvali:*\n{jadval_text}",
         parse_mode="Markdown", reply_markup=domla_menyu())
 
-    # O'quvchilarga xabar
     sent = 0
     for sid, info in foydalanuvchilar.items():
         if info.get("rol") == "oquvchi" and info.get("holat") == "done":
@@ -2365,7 +2329,7 @@ def kurs_holat_switch(call):
 
 
 # ============================================================
-# 📨 DOMLA: KURS ARIZALARI — TO'LOV TASDIQLASH (YANGI)
+# 📨 DOMLA: KURS ARIZALARI
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📨 Kurs arizalari")
@@ -2376,7 +2340,6 @@ def kurs_arizalari_korsatish(message):
     kutayotganlar = [a for a in kurs_arizalar if a["holat"] == "kutilmoqda"]
 
     if not kutayotganlar:
-        # Tarixni ko'rish imkoni
         jami = len(kurs_arizalar)
         bot.send_message(message.chat.id,
             f"📨 *Kurs arizalari*\n\n"
@@ -2423,9 +2386,7 @@ def ariza_tasdiqlash(call):
         f"📅 {ariza.get('kun','—')}  ⏰ {ariza.get('vaqt','—')}",
         parse_mode="Markdown", reply_markup=domla_menyu())
 
-    # O'quvchiga xabar
     try:
-        kurs = next((k for k in kurslar if k["id"] == ariza["kurs_id"]), None)
         bot.send_message(ariza["uid"],
             f"🎉 *Tabriklaymiz! Kursga qabul qilindingiz!*\n\n"
             f"🎓 *{ariza['kurs_nomi']}*\n"
@@ -2450,7 +2411,6 @@ def ariza_rad_etish(call):
         bot.answer_callback_query(call.id, "Bu ariza allaqachon ko'rib chiqilgan.")
         return
 
-    # Rad sababi so'rash
     msg = bot.send_message(call.message.chat.id,
         f"❌ *Rad etish*\n👤 {ariza['ism']} — {ariza['kurs_nomi']}\n\n"
         f"Rad etish sababini yozing _(ixtiyoriy, o'tkazish uchun — yozing)_:",
@@ -2472,7 +2432,6 @@ def ariza_rad_sabab(message, ariza_id):
         f"❌ *Rad etildi.*\n👤 {ariza['ism']} — {ariza['kurs_nomi']}",
         parse_mode="Markdown", reply_markup=domla_menyu())
 
-    # O'quvchiga xabar
     try:
         sabab_qism = f"\n💬 Sabab: {sabab}" if sabab else ""
         bot.send_message(ariza["uid"],
@@ -2485,7 +2444,7 @@ def ariza_rad_sabab(message, ariza_id):
 
 
 # ============================================================
-# 🎓 O'QUVCHI: KURSLARGA YOZILISH (YANGI)
+# 🎓 O'QUVCHI: KURSLARGA YOZILISH
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "🎓 Kurslarga yozilish")
@@ -2544,8 +2503,6 @@ def kurs_info_korsatish(call):
         "rad_etildi":  "❌ Ariza rad etildi",
     }
     holat_text = holat_map.get(mavjud["holat"], "—") if mavjud else "—"
-    jadval     = kurs.get("jadval", [])
-    jadval_text = "\n".join(f"  📅 {j['kun']}: ⏰ {j['vaqt']}" for j in jadval) if jadval else "  —"
     bot.answer_callback_query(call.id,
         f"🎓 {kurs['nomi']}\n💰 {kurs['narx']}\n📌 Sizning holat: {holat_text}",
         show_alert=True)
@@ -2553,7 +2510,6 @@ def kurs_info_korsatish(call):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("kurs_yozil_"))
 def kurs_yozilish_boshlash(call):
-    """Kurs tanlanganda — jadval kunlarini ko'rsatadi"""
     kurs_id = int(call.data.split("_")[2])
     kurs    = next((k for k in kurslar if k["id"] == kurs_id), None)
     uid     = call.from_user.id
@@ -2575,8 +2531,6 @@ def kurs_yozilish_boshlash(call):
     yozilganlar = sum(1 for a in kurs_arizalar
                       if a["kurs_id"] == kurs_id and a["holat"] == "tasdiqlandi")
     joy_text    = f"{kurs['joylar'] - yozilganlar} ta bo'sh o'rin" if kurs["joylar"] > 0 else "Cheksiz"
-
-    # Kurs haqida ma'lumot + dars kunlarini tugma sifatida ko'rsatish
     jadval_text = "\n".join(f"📅 {j['kun']}: ⏰ {j['vaqt']}" for j in jadval) if jadval else "—"
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -2600,12 +2554,9 @@ def kurs_yozilish_boshlash(call):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("kursvaxt_"))
 def kurs_kun_tanlandi(call):
-    """O'quvchi kun/vaqt tanladi — telefon so'raydi"""
-    # format: kursvaxt_{kurs_id}_{kun}
-    data    = call.data[len("kursvaxt_"):]
-    sep_idx = data.index("_")
-    kurs_id = int(data[:sep_idx])
-    kun     = data[sep_idx+1:]
+    parts   = call.data.split("_")
+    kurs_id = int(parts[1])
+    kun     = "_".join(parts[2:])
     uid     = call.from_user.id
 
     kurs = next((k for k in kurslar if k["id"] == kurs_id), None)
@@ -2613,11 +2564,9 @@ def kurs_kun_tanlandi(call):
         bot.answer_callback_query(call.id, "Xatolik.")
         return
 
-    # Tanlangan vaqtni topamiz
     jadval_entry = next((j for j in kurs.get("jadval", []) if j["kun"] == kun), None)
     vaqt = jadval_entry["vaqt"] if jadval_entry else "—"
 
-    # Temp saqlaymiz
     kurs_temp[uid] = {
         "kurs_id":    kurs_id,
         "kurs_nomi":  kurs["nomi"],
@@ -2633,18 +2582,12 @@ def kurs_kun_tanlandi(call):
         parse_mode="Markdown")
     bot.answer_callback_query(call.id)
 
-    # Keyingi qadam — telefon (yangi xabarga register qilamiz)
-    sent = bot.send_message(call.message.chat.id,
-        "📞 Telefon raqamingizni kiriting:\n_(masalan: +998 90 123 45 67)_",
-        parse_mode="Markdown")
-    bot.register_next_step_handler(sent, lambda m: kurs_telefon_qabul(m, uid))
+    bot.register_next_step_handler(call.message, lambda m: kurs_telefon_qabul(m, uid))
 
 
 def kurs_telefon_qabul(message, uid):
-    """Telefon raqamini qabul qiladi va ariza yuboradi"""
     telefon = message.text.strip()
 
-    # Oddiy tekshiruv
     if len(telefon) < 7:
         msg = bot.send_message(message.chat.id,
             "❌ Telefon raqam noto'g'ri. Qayta kiriting:\n_(masalan: +998901234567)_",
@@ -2687,7 +2630,6 @@ def kurs_telefon_qabul(message, uid):
         f"O'qituvchi tasdiqlashi bilanoq xabar keladi. 🔔",
         parse_mode="Markdown", reply_markup=oquvchi_menyu())
 
-    # Domlaga xabar
     for sid, info in foydalanuvchilar.items():
         if info.get("rol") == "domla" and info.get("holat") == "done":
             try:
@@ -2714,7 +2656,6 @@ def kurs_ariza_bekor(call):
     bot.answer_callback_query(call.id)
 
 
-# compat stub — eski callback bo'lsa ishlaydi
 @bot.callback_query_handler(func=lambda c: c.data.startswith("kurs_ariza_jo_"))
 def kurs_ariza_jo_eski(call):
     bot.answer_callback_query(call.id, "Iltimos, qaytadan kursni tanlang.")
@@ -2724,7 +2665,7 @@ def kurs_ariza_jo_eski(call):
 
 
 # ============================================================
-# 📜 O'QUVCHI: MENING KURSLARIM (YANGI)
+# 📜 O'QUVCHI: MENING KURSLARIM
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📜 Mening kurslarim")
@@ -2758,7 +2699,6 @@ def oquvchi_mening_kurslari(message):
                  f"   📌 {holat}{kun_vaqt}{tel}{izoh}\n"
                  f"   🕐 {a.get('vaqt_yuborildi', a.get('vaqt','—'))}\n\n")
 
-    # Kursdan chiqish imkoni (faqat kutilmoqdalar uchun)
     kutayotgan = [a for a in mening if a["holat"] == "kutilmoqda"]
     if kutayotgan:
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -2797,10 +2737,7 @@ def kurs_arizani_bekor(call):
 
 
 # ============================================================
-
-
-# ============================================================
-# 💰 DOMLA: TO'LOVLARNI BOSHQARISH (YANGI)
+# 💰 DOMLA: TO'LOVLARNI BOSHQARISH
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "💰 To'lovlarni boshqarish")
@@ -3048,7 +2985,7 @@ def tolov_oquvchi_detail(call):
 
 
 # ============================================================
-# 💳 O'QUVCHI: TO'LOV TARIXI (YANGI)
+# 💳 O'QUVCHI: TO'LOV TARIXI
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "💳 To'lov tarixim")
@@ -3072,7 +3009,7 @@ def oquvchi_tolov_tarixi(message):
 
 
 # ============================================================
-# 📣 DOMLA: E'LON YUBORISH (YANGI)
+# 📣 DOMLA: E'LON YUBORISH
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📣 E'lon yuborish")
@@ -3148,7 +3085,7 @@ def elon_muhim_tanlash(call):
 
 
 # ============================================================
-# 📣 O'QUVCHI: E'LONLAR (YANGI)
+# 📣 O'QUVCHI: E'LONLAR
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📣 E'lonlar")
@@ -3169,7 +3106,7 @@ def oquvchi_elonlar(message):
 
 
 # ============================================================
-# 🏅 REYTING (YANGI)
+# 🏅 REYTING
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "🏅 Reyting")
@@ -3223,7 +3160,7 @@ def reyting_korsatish(message):
 
 
 # ============================================================
-# 📞 O'QUVCHI: ADMIN BILAN BOG'LANISH (YANGI)
+# 📞 O'QUVCHI: ADMIN BILAN BOG'LANISH
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📞 Admin bilan bog'lanish")
@@ -3272,7 +3209,7 @@ def admin_xabar_yuborish(message):
 
 
 # ============================================================
-# 📬 DOMLA: ADMIN XABARLARI (YANGI)
+# 📬 DOMLA: ADMIN XABARLARI
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "📬 Admin xabarlari")
@@ -3409,7 +3346,7 @@ def oquvchi_yangi_parol_tasdiqlash(message):
 
 
 # ============================================================
-# 🔑 DOMLA: PAROLLARNI SOZLASH (YANGI)
+# 🔑 DOMLA: PAROLLARNI SOZLASH
 # ============================================================
 
 @bot.message_handler(func=lambda m: m.text == "🔑 Parollarni sozlash")
@@ -3491,7 +3428,6 @@ def _saqlash_oquvchi_parol(message):
 # NOMA'LUM XABAR
 # ============================================================
 
-
 @bot.message_handler(func=lambda m: True)
 def noma_lum(message):
     uid = message.from_user.id
@@ -3504,14 +3440,40 @@ def noma_lum(message):
         bot.send_message(message.chat.id, "❓ Menyudan tanlang.", reply_markup=oquvchi_menyu())
 
 # ============================================================
-# ISHGA TUSHIRISH
+# FLASK + WEBHOOK ISHGA TUSHIRISH
 # ============================================================
+
+app = Flask(__name__)
+
+@app.route('/' + BOT_TOKEN, methods=['POST'])
+def webhook():
+    json_str = flask_request.get_data(as_text=True)
+    update   = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return 'ok', 200
+
+@app.route('/')
+def index():
+    return '🏫 Oquv markazi boti ishlayapti!', 200
 
 if __name__ == "__main__":
     print("🏫 OQUV MARKAZI BOTI ishga tushdi!")
     print(f"🔐 O'qituvchi paroli : {DOMLA_PAROLI}")
     print(f"🔐 O'quvchi paroli   : {OQUVCHI_PAROLI}")
-    print("✅ Barcha funksiyalar faol")
-    print("🛑 To'xtatish: Ctrl+C\n")
-    bot.remove_webhook()
-    bot.infinity_polling(timeout=10, long_polling_timeout=5)
+
+    RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL', '')
+
+    if RENDER_URL:
+        # Render serveri — Webhook rejimi
+        bot.remove_webhook()
+        bot.set_webhook(url=f"{RENDER_URL}/{BOT_TOKEN}")
+        print(f"✅ Webhook o'rnatildi: {RENDER_URL}/{BOT_TOKEN}")
+        port = int(os.environ.get('PORT', 5000))
+        print(f"🌐 Server port: {port}")
+        app.run(host='0.0.0.0', port=port)
+    else:
+        # Local ishga tushirish — Polling rejimi
+        print("✅ Polling rejimida ishlamoqda (local)...")
+        print("🛑 To'xtatish: Ctrl+C\n")
+        bot.remove_webhook()
+        bot.infinity_polling(timeout=10, long_polling_timeout=5)
