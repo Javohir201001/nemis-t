@@ -25,7 +25,7 @@ import os
 # ============================================================
 #  SOZLAMALAR
 # ============================================================
-BOT_TOKEN       = ("8741092251:AAECrlLCFfOx7xx41j-IOwq4MdukDHb8Sps")
+BOT_TOKEN       = ("8679606381:AAGpPelxR9kIvnCzVAsJlsVhl6jRxdrtXUg")
 DOMLA_PAROLI    = "domla2024"    # O'qituvchi paroli
 OQUVCHI_PAROLI  = "oquvchi2024"  # O'quvchi paroli
 # ============================================================
